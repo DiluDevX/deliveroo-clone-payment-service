@@ -1,0 +1,166 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to deploy to (development or production)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+
+    env:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Build
+        run: npm run build
+
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ env.RELEASE_TOKEN }}
+          HUSKY: 0
+        run: npx semantic-release
+
+  extract-version:
+    name: Extract Release Version
+    needs: release
+    uses: ./.github/workflows/extract-version.yml
+
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    needs: extract-version
+    if: needs.extract-version.outputs.published == 'true'
+
+    environment:
+      name: ${{ inputs.environment }}
+
+    env:
+      APP_VERSION: ${{ needs.extract-version.outputs.version }}
+      ENVIRONMENT: ${{ inputs.environment }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      CONTAINER_NAME: ${{ vars.CONTAINER_NAME }}
+      CONTAINER_PORT: ${{ vars.CONTAINER_PORT }}
+      SECRET: ${{ vars.SECRET }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.extract-version.outputs.version }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image to ECR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
+            ENV=${{ env.ENVIRONMENT }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.APP_VERSION }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy and verify on EC2 via SSH
+        uses: appleboy/ssh-action@8743aa11bfbda97acb45c151ae7a2e0b203f1914
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: ECR_REGISTRY,ECR_REPOSITORY,APP_VERSION,SECRET,AWS_REGION,CONTAINER_NAME,CONTAINER_PORT
+          script: |
+            set -eu
+
+            # ── Auth ────────────────────────────────────────────────────────
+            aws ecr get-login-password --region "$AWS_REGION" | \
+              docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+            # ── Fetch secrets from AWS Secrets Manager ──────────────────────
+            aws secretsmanager get-secret-value \
+              --secret-id "$SECRET" \
+              --region "$AWS_REGION" \
+              --query SecretString \
+              --output text | jq -r 'to_entries | .[] | "\(.key)=\(.value)"' > /home/ec2-user/app.env
+            chmod 600 /home/ec2-user/app.env
+
+            # ── Pull latest image ───────────────────────────────────────────
+            docker pull "$ECR_REGISTRY/$ECR_REPOSITORY:$APP_VERSION"
+
+            # ── Stop and remove existing container if running ───────────────
+            if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+              echo "Stopping existing container: $CONTAINER_NAME"
+              docker stop "$CONTAINER_NAME"
+              docker rm "$CONTAINER_NAME"
+            fi
+
+            # ── Run new container ─────────────────────────────────────────────
+            docker run -d \
+              --name "$CONTAINER_NAME" \
+              --restart unless-stopped \
+              --env-file /home/ec2-user/app.env \
+              -e APP_VERSION="$APP_VERSION" \
+              -p "$CONTAINER_PORT:3000" \
+              "$ECR_REGISTRY/$ECR_REPOSITORY:$APP_VERSION"
+
+            # ── Cleanup secrets file ───────────────────────────────────────
+            rm -f /home/ec2-user/app.env
+
+            # ── Verify container is running ─────────────────────────────────
+            sleep 5
+            if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+              echo "✅ Container $CONTAINER_NAME is running"
+              docker ps --filter "name=$CONTAINER_NAME" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            else
+              echo "❌ Container $CONTAINER_NAME failed to start"
+              docker logs "$CONTAINER_NAME" --tail 50
+              exit 1
+            fi
+
+            # ── Prune old images to free disk space ─────────────────────────
+            docker image prune -f

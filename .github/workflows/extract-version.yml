@@ -1,0 +1,51 @@
+name: Utility — Extract Release Version
+
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: 'Released version without v prefix (e.g. 1.2.0)'
+        value: ${{ jobs.extract.outputs.version }}
+      published:
+        description: 'Whether a new version was published'
+        value: ${{ jobs.extract.outputs.published }}
+
+jobs:
+  extract:
+    name: Extract Latest Git Tag Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      published: ${{ steps.extract.outputs.published }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract released version
+        id: extract
+        run: |
+          git fetch --tags
+
+          LATEST_TAG=$(git tag --sort=-creatordate | head -n 1)
+
+          if [ -z "$LATEST_TAG" ]; then
+            echo "published=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          TAG_DATE=$(git log -1 --format="%ct" "$LATEST_TAG")
+          NOW=$(date +%s)
+          DIFF=$((NOW - TAG_DATE))
+
+          if [ "$DIFF" -lt 300 ]; then
+            VERSION="${LATEST_TAG#v}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "published=true" >> $GITHUB_OUTPUT
+            echo "✅ Released version: $VERSION"
+          else
+            echo "published=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No new release in this run"
+          fi

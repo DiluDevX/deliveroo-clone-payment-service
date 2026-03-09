@@ -1,0 +1,80 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run lint:check)",
+      "Bash(npm run lint:fix)",
+      "Bash(npm run format:check)",
+      "Bash(npm run format:fix)",
+      "Bash(npm run types:check)",
+      "Bash(npm run build)",
+      "Bash(npm run dev)",
+      "Bash(npm run test*)",
+      "Bash(npm run prisma:generate)",
+      "Bash(npm run prisma:migrate:new)",
+      "Bash(npm run prisma:studio)",
+      "Bash(npm run prisma:push)",
+      "Bash(npm outdated)",
+      "Bash(npm audit)",
+      "Bash(npm audit fix)",
+      "Bash(npm install*)",
+      "Bash(npm ci)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git checkout*)",
+      "Bash(git branch*)",
+      "Bash(npx prettier --write*)",
+      "Bash(gh *)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.local)",
+      "Read(.env.staging)",
+      "Read(.env.production)",
+      "Read(.env.prod)",
+      "Bash(rm -rf *)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(yarn *)",
+      "Bash(pnpm *)",
+      "Bash(bun *)",
+      "Bash(npm run prisma:migrate)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/format-file.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/validate-bash.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/stop-summary.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

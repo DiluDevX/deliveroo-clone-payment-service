@@ -1,0 +1,17 @@
+.git
+.github
+.gitignore
+.env.*
+README.md
+LICENSE
+.vscode
+.dockerignore
+**/coverage
+**/*.log
+.prettierignore
+.prettierrc
+docker-compose.yml
+Dockerfile
+eslint.config.js
+node_modules
+dist
