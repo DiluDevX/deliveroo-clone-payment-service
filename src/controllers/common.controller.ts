@@ -27,6 +27,45 @@ export const healthCheck = async (
   }
 };
 
+export const readinessCheck = async (
+  _req: Request,
+  res: Response<CommonResponseDTO<HealthCheckResponseBodyDTO>>,
+  next: NextFunction
+) => {
+  try {
+    const db = await checkDatabaseConnection();
+
+    const isReady = db === 'connected';
+
+    res.status(isReady ? StatusCodes.OK : StatusCodes.SERVICE_UNAVAILABLE).json({
+      success: isReady,
+      message: isReady ? 'Service is ready' : 'Service is not ready',
+      data: {
+        db,
+        service: environment.serviceName,
+        timestamp: new Date().toISOString(),
+        version: environment.version,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const livenessCheck = (
+  _req: Request,
+  res: Response<CommonResponseDTO<Pick<HealthCheckResponseBodyDTO, 'service' | 'timestamp'>>>
+) => {
+  res.status(StatusCodes.OK).json({
+    success: true,
+    message: 'Service is alive',
+    data: {
+      service: environment.serviceName,
+      timestamp: new Date().toISOString(),
+    },
+  });
+};
+
 export const fallback = async (_req: Request, res: Response) => {
   res.status(StatusCodes.NOT_FOUND).json({
     success: false,

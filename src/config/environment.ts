@@ -2,15 +2,6 @@ import dotenv from 'dotenv';
 import { EnvironmentEnum } from '../utils/constants';
 dotenv.config();
 
-interface MailConfig {
-  companyName: string;
-  companyEmail: string;
-  logoUrl: string;
-  supportEmail: string;
-  appUrl: string;
-  resendApiKey: string;
-}
-
 interface RateLimitConfig {
   windowMs: number;
   max: number;
@@ -20,15 +11,15 @@ interface Environment {
   port: number;
   env: EnvironmentEnum;
   databaseUrl: string;
-  baseUrl: string;
   version: string;
 
   logging: {
     level: string;
   };
-  bffAPIKey: string;
+  apiKey: string;
   serviceName: string;
-  mail: MailConfig;
+  stripeSecretKey: string;
+  stripeWebhookSecret: string;
   rateLimit: RateLimitConfig;
 }
 
@@ -51,30 +42,6 @@ const parsePositiveInt = (raw: string, name: string): number => {
   }
   return value;
 };
-
-function loadMailConfig(env: EnvironmentEnum): MailConfig {
-  const isProduction = env === EnvironmentEnum.Production;
-
-  if (isProduction) {
-    return {
-      companyName: requireEnv('COMPANY_NAME'),
-      companyEmail: requireEnv('COMPANY_EMAIL'),
-      logoUrl: requireEnv('LOGO_URL'),
-      supportEmail: requireEnv('SUPPORT_EMAIL'),
-      appUrl: requireEnv('APP_URL'),
-      resendApiKey: requireEnv('RESEND_API_KEY'),
-    };
-  }
-
-  return {
-    companyName: optionalEnv('COMPANY_NAME', 'Local Development'),
-    companyEmail: optionalEnv('COMPANY_EMAIL', 'noreply@localhost'),
-    logoUrl: optionalEnv('LOGO_URL', 'https://via.placeholder.com/200?text=Logo'),
-    supportEmail: optionalEnv('SUPPORT_EMAIL', 'support@localhost'),
-    appUrl: optionalEnv('APP_URL', 'http://localhost:3000'),
-    resendApiKey: optionalEnv('RESEND_API_KEY', 'test-key-development-only'),
-  };
-}
 
 function loadRateLimitConfig(env: EnvironmentEnum): RateLimitConfig {
   const defaults = {
@@ -115,16 +82,16 @@ if (!validEnvs.includes(rawEnv as EnvironmentEnum)) {
 const environment_raw = rawEnv as EnvironmentEnum;
 
 export const environment: Environment = {
-  port: parsePositiveInt(optionalEnv('PORT', '3000'), 'PORT'),
+  port: parsePositiveInt(optionalEnv('PORT', '3001'), 'PORT'),
   env: environment_raw,
   version: optionalEnv('APP_VERSION', '1.0.0'),
   databaseUrl: requireEnv('DATABASE_URL'),
-  baseUrl: optionalEnv('BASE_URL', 'http://localhost:3000'),
   logging: {
     level: optionalEnv('LOG_LEVEL', 'info'),
   },
-  bffAPIKey: requireEnv('BFF_API_KEY'),
-  mail: loadMailConfig(environment_raw),
+  apiKey: requireEnv('API_KEY'),
+  stripeSecretKey: requireEnv('STRIPE_SECRET_KEY'),
+  stripeWebhookSecret: requireEnv('STRIPE_WEBHOOK_SECRET'),
   rateLimit: loadRateLimitConfig(environment_raw),
   serviceName: requireEnv('SERVICE_NAME'),
 };

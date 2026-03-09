@@ -62,3 +62,27 @@ export class TooManyRequestsError extends AppError {
     super(message, StatusCodes.TOO_MANY_REQUESTS, 'TOO_MANY_REQUESTS');
   }
 }
+
+export class PaymentNotFoundError extends NotFoundError {
+  constructor(message = 'Payment not found') {
+    super(message);
+  }
+}
+
+export class PaymentAlreadyProcessedError extends ConflictError {
+  constructor(message = 'Payment has already been processed') {
+    super(message);
+  }
+}
+
+export class PaymentNotSucceededError extends BadRequestError {
+  constructor(message = 'Payment has not succeeded') {
+    super(message);
+  }
+}
+
+export class StripeError extends InternalServerError {
+  constructor(message = 'Stripe operation failed') {
+    super(message);
+  }
+}
