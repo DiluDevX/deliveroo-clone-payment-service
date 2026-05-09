@@ -31,7 +31,10 @@ export const createPaymentIntent = async (
     const commissionValue = (amount * commissionPercentage) / 100;
     const transferAmount = amount - commissionValue;
 
-    // Create Stripe PaymentIntent first (for CARD), then DB record to avoid orphaned payments
+    // Create Stripe PaymentIntent first (for CARD), then DB record.
+    // If createPayment or setProviderPaymentId fails, the PaymentIntent exists in Stripe but is
+    // not linked in our DB; retries are safe due to stable idempotencyKey (orderId) which ensures
+    // the same PaymentIntent is returned on retry, preventing duplicate intents.
     if (paymentMethod === PaymentMethod.CARD) {
       // Create real Stripe PaymentIntent with full amount (in minor units)
       const stripeIntent = await stripe.paymentIntents.create(
@@ -46,7 +49,7 @@ export const createPaymentIntent = async (
           },
           statement_descriptor: 'Deliveroo Order',
         },
-        { idempotencyKey: `${orderId}-${Date.now()}` }
+        { idempotencyKey: orderId }
       );
 
       // Now create DB payment record
@@ -203,7 +206,7 @@ export const cancelPayment = async (
               refundReason: refundReason ?? 'no reason provided',
             },
           },
-          { idempotencyKey: `refund-${paymentId}-${Date.now()}` }
+          { idempotencyKey: `refund-${paymentId}-${payment.providerPaymentId}` }
         );
 
         logger.info(

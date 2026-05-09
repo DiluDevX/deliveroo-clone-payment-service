@@ -20,7 +20,7 @@ The service:
 - Language: TypeScript
 - Database: PostgreSQL via Prisma
 - Payment provider dependency: Stripe
-- Default local port in .env.example: 3001, recommended system port is 4003
+- Default local port: 4003
 - Entry point: src/index.ts
 
 ## Install and Run
@@ -139,21 +139,29 @@ Database (Prisma + PostgreSQL)
 }
 ```
 
-**Response:**
+**Response (CARD):**
 
 ```json
 {
   "success": true,
   "message": "Payment intent created",
   "data": {
-    "id": "payment-uuid",
-    "orderId": "order-uuid",
+    "paymentId": "payment-uuid",
     "status": "PENDING",
-    "amount": 1299,
-    "currency": "GBP",
-    "commissionValue": 195,
-    "transferAmount": 1104,
-    "stripeClientSecret": "pi_xxx_secret_xxx"
+    "clientSecret": "pi_xxx_secret_xxx"
+  }
+}
+```
+
+**Response (CASH_ON_DELIVERY):**
+
+```json
+{
+  "success": true,
+  "message": "Payment intent created",
+  "data": {
+    "paymentId": "payment-uuid",
+    "status": "PROCESSING"
   }
 }
 ```
@@ -162,10 +170,12 @@ Database (Prisma + PostgreSQL)
 
 Valid payment statuses:
 
-- `PENDING` - Payment created, awaiting confirmation
-- `COMPLETED` - Payment successfully processed
-- `CANCELLED` - Payment cancelled before completion
-- `REFUNDED` - Payment refunded after completion
+- `PaymentStatus.PENDING` - Payment created, awaiting confirmation
+- `PaymentStatus.PROCESSING` - Payment processing initiated (COD only)
+- `PaymentStatus.SUCCEEDED` - Payment successfully verified with Stripe (confirm handler only transitions here after verifying `stripeIntent.status === 'succeeded'`)
+- `PaymentStatus.FAILED` - Payment failed
+- `PaymentStatus.CANCELLED` - Payment cancelled before completion
+- `PaymentStatus.REFUNDED` - Payment refunded after completion
 
 ### Payment Methods
 
@@ -318,11 +328,6 @@ curl -X POST http://localhost:4003/api/v1/payments/create-intent \
 curl -X GET http://localhost:4003/api/v1/payments/order/order-123 \
   -H 'x-api-key: shared-payment-service-key'
 ```
-
-- Payment service owns payment creation.
-- BFF orchestrates the checkout saga or exposes a single checkout endpoint that calls both.
-
-For a small project, a BFF-orchestrated checkout is easier to reason about than service-to-service payment creation plus frontend payment creation.
 
 ## Smoke Test
 
