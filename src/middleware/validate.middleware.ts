@@ -10,7 +10,11 @@ function createValidator(target: ValidationTarget) {
     return (req: Request, _res: Response, next: NextFunction): void => {
       try {
         const result = schema.parse(req[target]);
-        req[target] = result;
+        if (target === 'query') {
+          Object.assign(req.query, result);
+        } else {
+          req[target] = result;
+        }
         next();
       } catch (error) {
         if (error instanceof ZodError) {

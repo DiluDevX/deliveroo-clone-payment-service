@@ -3,6 +3,7 @@ import { StatusCodes } from 'http-status-codes';
 import * as paymentService from '../../services/payment.database.service';
 import { logger } from '../../utils/logger';
 import { PaymentNotFoundError, PaymentAlreadyProcessedError } from '../../utils/errors';
+import { stripe } from '../../config/stripe';
 import { CommonResponseDTO } from '../../dtos/common.dto';
 import {
   CreatePaymentIntentDTO,
@@ -12,7 +13,7 @@ import {
   PaymentResponseDTO,
   CreatePaymentIntentResponseDTO,
 } from '../../dtos/payment.dto';
-import { PaymentStatus, PaymentMethod } from '../../../generated/prisma/client.js';
+import { PaymentStatus, PaymentMethod, Prisma } from '../../../generated/prisma/client.js';
 
 export const createPaymentIntent = async (
   req: Request<unknown, CommonResponseDTO<CreatePaymentIntentResponseDTO>, CreatePaymentIntentDTO>,
@@ -42,17 +43,39 @@ export const createPaymentIntent = async (
     logger.info({ paymentId: payment.id, orderId, paymentMethod }, 'Payment created');
 
     if (paymentMethod === 'CARD') {
-      // TODO: implement Stripe PaymentIntent creation
-      // const intent = await stripe.paymentIntents.create({ amount: Math.round(amount * 100), currency, metadata: { paymentId: payment.id } });
-      // await paymentService.setProviderPaymentId(payment.id, intent.id, intent as unknown as Prisma.InputJsonValue);
+      // Create real Stripe PaymentIntent
+      const stripeIntent = await stripe.paymentIntents.create({
+        amount: Math.round(transferAmount * 100), // Amount in cents
+        currency: currency.toLowerCase(),
+        payment_method_types: ['card'],
+        metadata: {
+          paymentId: payment.id,
+          orderId,
+          userId,
+          restaurantId,
+        },
+        statement_descriptor: 'Deliveroo Order',
+      });
+
+      // Store Stripe PaymentIntent ID and response in database
+      const updatedPayment = await paymentService.setProviderPaymentId(
+        payment.id,
+        stripeIntent.id,
+        stripeIntent.metadata as Prisma.InputJsonValue
+      );
+
+      logger.info(
+        { paymentId: payment.id, stripePaymentIntentId: stripeIntent.id, orderId },
+        'Stripe PaymentIntent created'
+      );
 
       res.status(StatusCodes.CREATED).json({
         success: true,
         message: 'Payment intent created',
         data: {
-          paymentId: payment.id,
-          status: payment.status,
-          clientSecret: null,
+          paymentId: updatedPayment.id,
+          status: updatedPayment.status,
+          clientSecret: stripeIntent.client_secret,
         },
       });
       return;
@@ -61,7 +84,10 @@ export const createPaymentIntent = async (
     // CASH_ON_DELIVERY: set status to PROCESSING immediately
     const updated = await paymentService.updatePaymentStatus(payment.id, PaymentStatus.PROCESSING);
 
-    logger.info({ paymentId: payment.id }, 'Payment status set to PROCESSING (cash on delivery)');
+    logger.info(
+      { paymentId: payment.id },
+      'Payment status set to PROCESSING (cash on delivery) for payment id: ' + payment.id
+    );
 
     res.status(StatusCodes.CREATED).json({
       success: true,
@@ -95,9 +121,23 @@ export const confirmPayment = async (
       throw new PaymentAlreadyProcessedError('Payment has already been confirmed');
     }
 
-    // TODO: implement Stripe PaymentIntent verification
-    // const intent = await stripe.paymentIntents.retrieve(payment.providerPaymentId!);
-    // if (intent.status !== 'succeeded') { throw new PaymentNotSucceededError(...); }
+    // Verify Stripe PaymentIntent status if it's a card payment
+    if (payment.paymentMethod === 'CARD' && payment.providerPaymentId) {
+      const stripeIntent = await stripe.paymentIntents.retrieve(payment.providerPaymentId);
+
+      if (stripeIntent.status !== 'succeeded') {
+        logger.warn(
+          { paymentId, stripeStatus: stripeIntent.status },
+          'Stripe payment intent not succeeded'
+        );
+        throw new Error(`Payment not completed in Stripe. Status: ${stripeIntent.status}`);
+      }
+
+      logger.info(
+        { paymentId, stripePaymentIntentId: stripeIntent.id },
+        'Stripe PaymentIntent verified as succeeded'
+      );
+    }
 
     const updated = await paymentService.updatePaymentStatus(paymentId, PaymentStatus.SUCCEEDED);
 
@@ -130,8 +170,18 @@ export const cancelPayment = async (
     }
 
     if (payment.status === PaymentStatus.SUCCEEDED) {
-      // TODO: implement Stripe refund
-      // const refund = await stripe.refunds.create({ payment_intent: payment.providerPaymentId! });
+      // Process refund via Stripe if it's a card payment
+      if (payment.paymentMethod === 'CARD' && payment.providerPaymentId) {
+        const refund = await stripe.refunds.create({
+          payment_intent: payment.providerPaymentId,
+          reason: 'requested_by_customer',
+        });
+
+        logger.info(
+          { paymentId, stripeRefundId: refund.id, refundReason },
+          'Stripe refund processed'
+        );
+      }
 
       const updated = await paymentService.refundPayment(paymentId, refundReason);
 

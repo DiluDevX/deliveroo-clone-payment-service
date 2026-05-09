@@ -1,3 +1,4 @@
 {
-  "cSpell.words": ["addgroup", "adduser", "creatordate", "dtos"]
+  "cSpell.words": ["addgroup", "adduser", "creatordate", "dtos"],
+  "postman.settings.dotenv-detection-notification-visibility": false
 }

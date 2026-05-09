@@ -1,4 +1,4 @@
-# node-template
+# deliveroo-clone-payment-service
 
 A production-ready TypeScript/Express microservice starter template with security-first design,
 full type safety, and a complete development workflow.
