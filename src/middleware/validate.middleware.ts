@@ -11,6 +11,10 @@ function createValidator(target: ValidationTarget) {
       try {
         const result = schema.parse(req[target]);
         if (target === 'query') {
+          // Clear existing keys before assigning validated result
+          Object.keys(req.query).forEach((key) => {
+            delete req.query[key];
+          });
           Object.assign(req.query, result);
         } else {
           req[target] = result;
@@ -18,13 +22,13 @@ function createValidator(target: ValidationTarget) {
         next();
       } catch (error) {
         if (error instanceof ZodError) {
-          next(new ValidationError('Validation failed'));
           const sanitizedIssues = error.issues.map((issue) => ({
             path: issue.path.join('.'),
             code: issue.code,
             message: issue.message,
           }));
           logger.error({ issues: sanitizedIssues }, 'Validation error');
+          next(new ValidationError('Validation failed'));
           return;
         }
         next(error);

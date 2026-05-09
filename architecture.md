@@ -111,7 +111,7 @@ Database (Prisma + PostgreSQL)
 3. `validateBody/validateParams/validateQuery` - Zod schema validation
 4. `rate-limiter` - Rate limiting by IP/API key
 
-## Route MoEndpoints
+## Route Endpoints
 
 | Method | Path                                  | Purpose                                        |
 | ------ | ------------------------------------- | ---------------------------------------------- |
@@ -119,13 +119,14 @@ Database (Prisma + PostgreSQL)
 | GET    | `/api/v1/payments/order/:orderId`     | Retrieve payment by order ID                   |
 | GET    | `/api/v1/payments/:paymentId`         | Retrieve payment by payment ID                 |
 | POST   | `/api/v1/payments/:paymentId/confirm` | Mark payment as confirmed/completed            |
-| POST   | `/api/v1/payments/:paymentId/cancel`  | Cancel and optionally                          |
+| POST   | `/api/v1/payments/:paymentId/cancel`  | Cancel and optionally refund payment           |
 
-````Request/Response DTOs
+## Request/Response DTOs
 
 ### Create Payment Intent
 
 **Request:**
+
 ```json
 {
   "orderId": "uuid",
@@ -136,7 +137,7 @@ Database (Prisma + PostgreSQL)
   "paymentMethod": "CARD",
   "commissionPercentage": 15
 }
-````
+```
 
 **Response:**
 
@@ -178,7 +179,8 @@ Valid payment methods:
 All amounts are stored as **integer minor units** (pennies/cents). Callers must convert decimal prices to minor units before sending to the payment service.
 
 Example: £12.99 → `1299`
-Authentication & Authorization
+
+## Authentication & Authorization
 
 **API Key Authentication:**
 
@@ -196,7 +198,26 @@ Authentication & Authorization
 
 **Configuration:**
 
-- SError Handling
+- Stripe secret key: `STRIPE_SECRET_KEY` (environment variable)
+- Stripe webhook secret: `STRIPE_WEBHOOK_SECRET` (for verifying webhook signatures)
+- Configured in [src/config/stripe.ts](src/config/stripe.ts)
+
+**Payment Flow:**
+
+1. Controller calls `stripe.paymentIntents.create()` with amount, currency, metadata
+2. Stripe returns `PaymentIntent` with `client_secret`
+3. Payment record stored with `providerPaymentId` (Stripe's intent ID)
+4. Client-side: frontend exchanges `client_secret` for card authorization
+5. Frontend calls `/confirm` endpoint with Stripe confirmation result
+6. Confirm handler verifies intent status before updating DB
+
+**Metadata Stored:**
+
+- `orderId` - Links payment to order
+- `restaurantId` - Identifies receiving restaurant
+- `commissionPercentage` - Commission calculation record
+
+## Error Handling
 
 The service uses custom error classes extending `AppError` for consistent error responses.
 

@@ -2,7 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import * as paymentService from '../../services/payment.database.service';
 import { logger } from '../../utils/logger';
-import { PaymentNotFoundError, PaymentAlreadyProcessedError } from '../../utils/errors';
+import {
+  PaymentNotFoundError,
+  PaymentAlreadyProcessedError,
+  PaymentNotSucceededError,
+} from '../../utils/errors';
 import { stripe } from '../../config/stripe';
 import { CommonResponseDTO } from '../../dtos/common.dto';
 import {
@@ -27,37 +31,39 @@ export const createPaymentIntent = async (
     const commissionValue = (amount * commissionPercentage) / 100;
     const transferAmount = amount - commissionValue;
 
-    const payment = await paymentService.createPayment({
-      orderId,
-      userId,
-      restaurantId,
-      amount,
-      currency,
-      commissionPercentage,
-      commissionValue,
-      transferAmount,
-      paymentMethod: paymentMethod as PaymentMethod,
-      status: PaymentStatus.PENDING,
-    });
-
-    logger.info({ paymentId: payment.id, orderId, paymentMethod }, 'Payment created');
-
-    if (paymentMethod === 'CARD') {
-      // Create real Stripe PaymentIntent
-      const stripeIntent = await stripe.paymentIntents.create({
-        amount: Math.round(transferAmount * 100), // Amount in cents
-        currency: currency.toLowerCase(),
-        payment_method_types: ['card'],
-        metadata: {
-          paymentId: payment.id,
-          orderId,
-          userId,
-          restaurantId,
+    // Create Stripe PaymentIntent first (for CARD), then DB record to avoid orphaned payments
+    if (paymentMethod === PaymentMethod.CARD) {
+      // Create real Stripe PaymentIntent with full amount (in minor units)
+      const stripeIntent = await stripe.paymentIntents.create(
+        {
+          amount, // Amount already in minor units (pennies/cents)
+          currency: currency.toLowerCase(),
+          payment_method_types: ['card'],
+          metadata: {
+            orderId,
+            userId,
+            restaurantId,
+          },
+          statement_descriptor: 'Deliveroo Order',
         },
-        statement_descriptor: 'Deliveroo Order',
+        { idempotencyKey: `${orderId}-${Date.now()}` }
+      );
+
+      // Now create DB payment record
+      const payment = await paymentService.createPayment({
+        orderId,
+        userId,
+        restaurantId,
+        amount,
+        currency,
+        commissionPercentage,
+        commissionValue,
+        transferAmount,
+        paymentMethod: PaymentMethod.CARD,
+        status: PaymentStatus.PENDING,
       });
 
-      // Store Stripe PaymentIntent ID and response in database
+      // Store Stripe PaymentIntent ID and metadata in database
       const updatedPayment = await paymentService.setProviderPaymentId(
         payment.id,
         stripeIntent.id,
@@ -81,13 +87,26 @@ export const createPaymentIntent = async (
       return;
     }
 
-    // CASH_ON_DELIVERY: set status to PROCESSING immediately
+    // CASH_ON_DELIVERY: create DB payment record
+    const payment = await paymentService.createPayment({
+      orderId,
+      userId,
+      restaurantId,
+      amount,
+      currency,
+      commissionPercentage,
+      commissionValue,
+      transferAmount,
+      paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
+      status: PaymentStatus.PENDING,
+    });
+
+    logger.info({ paymentId: payment.id, orderId, paymentMethod }, 'Payment created');
+
+    // Set status to PROCESSING for cash on delivery
     const updated = await paymentService.updatePaymentStatus(payment.id, PaymentStatus.PROCESSING);
 
-    logger.info(
-      { paymentId: payment.id },
-      'Payment status set to PROCESSING (cash on delivery) for payment id: ' + payment.id
-    );
+    logger.info({ paymentId: payment.id }, 'Payment status set to PROCESSING (cash on delivery)');
 
     res.status(StatusCodes.CREATED).json({
       success: true,
@@ -122,7 +141,7 @@ export const confirmPayment = async (
     }
 
     // Verify Stripe PaymentIntent status if it's a card payment
-    if (payment.paymentMethod === 'CARD' && payment.providerPaymentId) {
+    if (payment.paymentMethod === PaymentMethod.CARD && payment.providerPaymentId) {
       const stripeIntent = await stripe.paymentIntents.retrieve(payment.providerPaymentId);
 
       if (stripeIntent.status !== 'succeeded') {
@@ -130,7 +149,9 @@ export const confirmPayment = async (
           { paymentId, stripeStatus: stripeIntent.status },
           'Stripe payment intent not succeeded'
         );
-        throw new Error(`Payment not completed in Stripe. Status: ${stripeIntent.status}`);
+        throw new PaymentNotSucceededError(
+          `Payment not completed in Stripe. Status: ${stripeIntent.status}`
+        );
       }
 
       logger.info(
@@ -171,11 +192,19 @@ export const cancelPayment = async (
 
     if (payment.status === PaymentStatus.SUCCEEDED) {
       // Process refund via Stripe if it's a card payment
-      if (payment.paymentMethod === 'CARD' && payment.providerPaymentId) {
-        const refund = await stripe.refunds.create({
-          payment_intent: payment.providerPaymentId,
-          reason: 'requested_by_customer',
-        });
+      if (payment.paymentMethod === PaymentMethod.CARD && payment.providerPaymentId) {
+        const refund = await stripe.refunds.create(
+          {
+            payment_intent: payment.providerPaymentId,
+            amount: payment.amount,
+            reason: 'requested_by_customer',
+            metadata: {
+              paymentId,
+              refundReason: refundReason ?? 'no reason provided',
+            },
+          },
+          { idempotencyKey: `refund-${paymentId}-${Date.now()}` }
+        );
 
         logger.info(
           { paymentId, stripeRefundId: refund.id, refundReason },
