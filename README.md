@@ -63,13 +63,13 @@ project-root/
 
 ## API Endpoints
 
-All routes are prefixed with `/api/v1`.
+All routes are prefixed with `/v1`.
 
 ### Health
 
-| Method | Path             | Description  |
-| ------ | ---------------- | ------------ |
-| GET    | `/api/v1/health` | Health check |
+| Method | Path         | Description  |
+| ------ | ------------ | ------------ |
+| GET    | `/v1/health` | Health check |
 
 **Response:**
 
@@ -87,13 +87,13 @@ All routes are prefixed with `/api/v1`.
 
 ### Users (Example Resource)
 
-| Method | Path                | Description      | Body             |
-| ------ | ------------------- | ---------------- | ---------------- |
-| GET    | `/api/v1/users`     | List all users   | -                |
-| GET    | `/api/v1/users/:id` | Get user by ID   | -                |
-| POST   | `/api/v1/users`     | Create a user    | See schema below |
-| PATCH  | `/api/v1/users/:id` | Update a user    | See schema below |
-| DELETE | `/api/v1/users/:id` | Soft-delete user | -                |
+| Method | Path            | Description      | Body             |
+| ------ | --------------- | ---------------- | ---------------- |
+| GET    | `/v1/users`     | List all users   | -                |
+| GET    | `/v1/users/:id` | Get user by ID   | -                |
+| POST   | `/v1/users`     | Create a user    | See schema below |
+| PATCH  | `/v1/users/:id` | Update a user    | See schema below |
+| DELETE | `/v1/users/:id` | Soft-delete user | -                |
 
 **Create User Body:**
 

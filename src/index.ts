@@ -5,19 +5,22 @@ import { environment } from './config/environment';
 import { errorHandler } from './middleware/error-handler.middleware';
 import { rateLimiterMiddleware } from './middleware/rate-limiter.middleware';
 import routes from './routes';
+import { stripeWebhook } from './controllers/v1/payment.controller';
 
 const app = express();
 
 let isShuttingDown = false;
+
+// global rate limiter
+app.use(rateLimiterMiddleware);
+
+app.post('/v1/payments/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhook);
 
 // Parse JSON request bodies
 app.use(express.json());
 
 // Parse URL-encoded request bodies
 app.use(express.urlencoded({ extended: true }));
-
-// global rate limiter
-app.use(rateLimiterMiddleware);
 
 // Routes
 app.use(routes);

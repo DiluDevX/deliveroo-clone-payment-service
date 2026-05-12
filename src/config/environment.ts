@@ -20,6 +20,8 @@ interface Environment {
   serviceName: string;
   stripeSecretKey: string;
   stripeWebhookSecret: string;
+  orderServiceUrl: string;
+  orderServiceApiKey: string;
   rateLimit: RateLimitConfig;
 }
 
@@ -92,6 +94,8 @@ export const environment: Environment = {
   apiKey: requireEnv('API_KEY'),
   stripeSecretKey: requireEnv('STRIPE_SECRET_KEY'),
   stripeWebhookSecret: requireEnv('STRIPE_WEBHOOK_SECRET'),
+  orderServiceUrl: optionalEnv('ORDER_SERVICE_URL', 'http://localhost:4002'),
+  orderServiceApiKey: requireEnv('ORDER_SERVICE_API_KEY'),
   rateLimit: loadRateLimitConfig(environment_raw),
   serviceName: requireEnv('SERVICE_NAME'),
 };

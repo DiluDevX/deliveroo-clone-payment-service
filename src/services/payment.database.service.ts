@@ -26,6 +26,14 @@ export const findPaymentByOrderId = async (orderId: string): Promise<Payment | n
   });
 };
 
+export const findPaymentByProviderPaymentId = async (
+  providerPaymentId: string
+): Promise<Payment | null> => {
+  return prisma.payment.findFirst({
+    where: { providerPaymentId, deletedAt: null },
+  });
+};
+
 export const updatePaymentStatus = async (
   id: string,
   status: PaymentStatus,

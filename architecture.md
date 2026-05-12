@@ -9,7 +9,8 @@ The service:
 - Creates and manages payment records with soft-delete support
 - Calculates restaurant commissions based on configurable percentages
 - Integrates with Stripe for card payment processing
-- Provides status tracking for payments (PENDING, COMPLETED, CANCELLED, REFUNDED)
+- Provides status tracking for payments (PENDING, PROCESSING, SUCCEEDED, FAILED, CANCELLED, REFUNDED)
+- Receives Stripe webhooks and syncs final payment state back to the order service
 - Supports multiple payment methods (CARD, CASH_ON_DELIVERY)
 - Enforces authentication via API key middleware and actor context
 
@@ -58,6 +59,8 @@ DATABASE_URL=postgresql://user:password@localhost:5432/payment_service_db
 API_KEY=shared-payment-service-key
 STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxx
 STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxx
+ORDER_SERVICE_URL=http://localhost:4002
+ORDER_SERVICE_API_KEY=shared-order-service-key
 LOG_LEVEL=info
 APP_VERSION=1.0.0
 RATE_LIMIT_WINDOW_MS=900000
@@ -65,6 +68,7 @@ RATE_LIMIT_MAX=1000
 ```
 
 The BFF's `PAYMENT_SERVICE_API_KEY` and order service's `PAYMENT_SERVICE_API_KEY` must equal this service's `API_KEY`.
+This service's `ORDER_SERVICE_API_KEY` must equal the order service's `BFF_API_KEY`.
 
 ## Database
 
@@ -104,22 +108,25 @@ Services (src/services/)
 Database (Prisma + PostgreSQL)
 ```
 
-**Key middleware stack applied to /api/v1/payments:**
+**Key middleware stack applied to `/v1/payments`:**
 
 1. `apiKeyMiddleware` - Validates `x-api-key` header
 2. `actorMiddleware` - Extracts actor context (userId, restaurantId)
 3. `validateBody/validateParams/validateQuery` - Zod schema validation
 4. `rate-limiter` - Rate limiting by IP/API key
 
+The Stripe webhook route is mounted before JSON body parsing and does not use API key auth. It uses Stripe signature verification instead, which requires the raw request body.
+
 ## Route Endpoints
 
-| Method | Path                                  | Purpose                                        |
-| ------ | ------------------------------------- | ---------------------------------------------- |
-| POST   | `/api/v1/payments/create-intent`      | Create payment record and Stripe PaymentIntent |
-| GET    | `/api/v1/payments/order/:orderId`     | Retrieve payment by order ID                   |
-| GET    | `/api/v1/payments/:paymentId`         | Retrieve payment by payment ID                 |
-| POST   | `/api/v1/payments/:paymentId/confirm` | Mark payment as confirmed/completed            |
-| POST   | `/api/v1/payments/:paymentId/cancel`  | Cancel and optionally refund payment           |
+| Method | Path                              | Purpose                                        |
+| ------ | --------------------------------- | ---------------------------------------------- |
+| POST   | `/v1/payments/create-intent`      | Create payment record and Stripe PaymentIntent |
+| GET    | `/v1/payments/order/:orderId`     | Retrieve payment by order ID                   |
+| GET    | `/v1/payments/:paymentId`         | Retrieve payment by payment ID                 |
+| POST   | `/v1/payments/:paymentId/confirm` | Mark payment as confirmed/completed            |
+| POST   | `/v1/payments/:paymentId/cancel`  | Cancel and optionally refund payment           |
+| POST   | `/v1/payments/webhooks/stripe`    | Stripe webhook receiver                        |
 
 ## Request/Response DTOs
 
@@ -194,7 +201,7 @@ Example: £12.99 → `1299`
 
 **API Key Authentication:**
 
-- All requests to `/api/v1/payments` require the `x-api-key` header
+- All requests to `/v1/payments` require the `x-api-key` header
 - The API key is validated against `environment.apiKey` using timing-safe comparison
 - Requests from BFF, order service, and frontend must include the shared key
 
@@ -218,14 +225,33 @@ Example: £12.99 → `1299`
 2. Stripe returns `PaymentIntent` with `client_secret`
 3. Payment record stored with `providerPaymentId` (Stripe's intent ID)
 4. Client-side: frontend exchanges `client_secret` for card authorization
-5. Frontend calls `/confirm` endpoint with Stripe confirmation result
+5. Frontend calls `/confirm` endpoint after Stripe reports success
 6. Confirm handler verifies intent status before updating DB
+7. Stripe webhook also updates final payment state for reliable async confirmation
+8. Payment service notifies order service after final status changes
 
 **Metadata Stored:**
 
 - `orderId` - Links payment to order
 - `restaurantId` - Identifies receiving restaurant
 - `commissionPercentage` - Commission calculation record
+
+### Stripe Webhook Flow
+
+The webhook endpoint handles these events:
+
+- `payment_intent.succeeded` -> `PaymentStatus.SUCCEEDED`
+- `payment_intent.payment_failed` -> `PaymentStatus.FAILED`
+- `payment_intent.canceled` -> `PaymentStatus.CANCELLED`
+
+For each supported event, the service:
+
+1. Finds the local payment by Stripe PaymentIntent id.
+2. Updates the local payment status idempotently.
+3. Calls order service `POST /v1/orders/:orderId/payment-status`.
+4. Returns 200 to Stripe only after the local DB and order-service sync path completes.
+
+If the payment is already at the same status, the service still retries the order-service notification. This matters because Stripe may retry after an earlier failed response.
 
 ## Error Handling
 
@@ -285,17 +311,26 @@ transfer_amount = amount - commission_value
 ```
 Frontend → BFF (checkout endpoint)
            ↓ creates order in Order Service
-           ↓ creates payment in Payment Service
+           ↓ asks Order Service to prepare payment
+           ↓ Order Service creates payment in Payment Service
            ↓ returns PaymentIntent client_secret
            ↑
 Frontend (Stripe.js handles card input with client_secret)
            ↓
        BFF (confirm endpoint)
-           ↓ confirms payment
-           ↓ updates order status
+           ↓ confirms payment in Payment Service
+           ↓ Payment Service notifies Order Service
            ↑
 Frontend (show success/error)
+
+Stripe webhook
+           ↓
+Payment Service
+           ↓
+Order Service payment-status endpoint
 ```
+
+Do not make the BFF or frontend send trusted totals directly into payment service. The order service should be the caller that supplies amount, restaurant, user, currency, and commission data.
 
 ## Local Testing
 
@@ -308,7 +343,7 @@ npm run dev
 **Create payment intent:**
 
 ```bash
-curl -X POST http://localhost:4003/api/v1/payments/create-intent \
+curl -X POST http://localhost:4003/v1/payments/create-intent \
   -H 'Content-Type: application/json' \
   -H 'x-api-key: shared-payment-service-key' \
   -d '{
@@ -325,16 +360,24 @@ curl -X POST http://localhost:4003/api/v1/payments/create-intent \
 **Retrieve payment:**
 
 ```bash
-curl -X GET http://localhost:4003/api/v1/payments/order/order-123 \
+curl -X GET http://localhost:4003/v1/payments/order/order-123 \
   -H 'x-api-key: shared-payment-service-key'
 ```
+
+**Listen for Stripe webhooks locally:**
+
+```bash
+stripe listen --forward-to localhost:4003/v1/payments/webhooks/stripe
+```
+
+Copy the printed `whsec_...` value into `STRIPE_WEBHOOK_SECRET`.
 
 ## Smoke Test
 
 Direct service:
 
 ```bash
-curl -X POST http://localhost:4003/api/v1/payments/create-intent \
+curl -X POST http://localhost:4003/v1/payments/create-intent \
   -H 'content-type: application/json' \
   -H 'x-api-key: shared-payment-service-key' \
   -d '{"orderId":"o1","userId":"u1","restaurantId":"r1","amount":1299,"currency":"GBP","paymentMethod":"CARD","commissionPercentage":15}'
@@ -354,5 +397,6 @@ curl -X POST http://localhost:4000/api/payments/create-intent \
 - [ ] Align route prefix with BFF.
 - [ ] Align payment method enum with order service and frontend.
 - [ ] Decide amount unit and currency.
-- [ ] Implement Stripe PaymentIntent creation before calling this real payment.
-- [ ] Confirm endpoint verifies provider state rather than blindly succeeding.
+- [ ] Configure Stripe webhook secret in every environment.
+- [ ] `ORDER_SERVICE_API_KEY` matches the order service accepted API key.
+- [ ] Add retry/outbox handling if order-service sync failures become common.

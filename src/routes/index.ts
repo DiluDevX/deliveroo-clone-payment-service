@@ -7,12 +7,7 @@ import { environment } from '../config/environment';
 
 const router = Router();
 
-router.use(
-  '/api/v1/payments',
-  apiKeyMiddleware([environment.apiKey]),
-  actorMiddleware,
-  paymentRoutes
-);
+router.use('/v1/payments', apiKeyMiddleware([environment.apiKey]), actorMiddleware, paymentRoutes);
 router.use(commonRoutes);
 
 export default router;

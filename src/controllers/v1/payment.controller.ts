@@ -3,11 +3,15 @@ import { StatusCodes } from 'http-status-codes';
 import * as paymentService from '../../services/payment.database.service';
 import { logger } from '../../utils/logger';
 import {
+  BadRequestError,
   PaymentNotFoundError,
   PaymentAlreadyProcessedError,
   PaymentNotSucceededError,
+  ConflictError,
 } from '../../utils/errors';
 import { stripe } from '../../config/stripe';
+import { environment } from '../../config/environment';
+import * as orderService from '../../services/order.service';
 import { CommonResponseDTO } from '../../dtos/common.dto';
 import {
   CreatePaymentIntentDTO,
@@ -18,6 +22,37 @@ import {
   CreatePaymentIntentResponseDTO,
 } from '../../dtos/payment.dto';
 import { PaymentStatus, PaymentMethod, Prisma } from '../../../generated/prisma/client.js';
+import Stripe from 'stripe';
+
+const notifyOrderPaymentStatus = async (
+  orderId: string,
+  paymentId: string,
+  paymentStatus: PaymentStatus
+): Promise<void> => {
+  await orderService.notifyOrderPaymentStatus(orderId, paymentId, paymentStatus);
+};
+
+const syncPaymentAndOrderStatus = async (
+  paymentId: string,
+  paymentStatus: PaymentStatus
+): Promise<PaymentResponseDTO> => {
+  const updated = await paymentService.updatePaymentStatus(paymentId, paymentStatus);
+  await notifyOrderPaymentStatus(updated.orderId, updated.id, paymentStatus);
+  return updated;
+};
+
+const getPaymentStatusForStripeEvent = (eventType: string): PaymentStatus | null => {
+  switch (eventType) {
+    case 'payment_intent.succeeded':
+      return PaymentStatus.SUCCEEDED;
+    case 'payment_intent.payment_failed':
+      return PaymentStatus.FAILED;
+    case 'payment_intent.canceled':
+      return PaymentStatus.CANCELLED;
+    default:
+      return null;
+  }
+};
 
 export const createPaymentIntent = async (
   req: Request<unknown, CommonResponseDTO<CreatePaymentIntentResponseDTO>, CreatePaymentIntentDTO>,
@@ -36,6 +71,41 @@ export const createPaymentIntent = async (
     // not linked in our DB; retries are safe due to stable idempotencyKey (orderId) which ensures
     // the same PaymentIntent is returned on retry, preventing duplicate intents.
     if (paymentMethod === PaymentMethod.CARD) {
+      const existingPayment = await paymentService.findPaymentByOrderId(orderId);
+      if (existingPayment) {
+        if (
+          existingPayment.paymentMethod !== PaymentMethod.CARD ||
+          !existingPayment.providerPaymentId
+        ) {
+          throw new PaymentAlreadyProcessedError(
+            'A non-card payment already exists for this order'
+          );
+        }
+
+        if (existingPayment.amount !== amount || existingPayment.currency !== currency) {
+          throw new ConflictError('Existing payment intent does not match the current order total');
+        }
+
+        const existingStripeIntent = await stripe.paymentIntents.retrieve(
+          existingPayment.providerPaymentId
+        );
+
+        if (existingStripeIntent.status === 'succeeded') {
+          throw new PaymentAlreadyProcessedError('Payment has already succeeded for this order');
+        }
+
+        res.status(StatusCodes.OK).json({
+          success: true,
+          message: 'Existing payment intent retrieved',
+          data: {
+            paymentId: existingPayment.id,
+            status: existingPayment.status,
+            clientSecret: existingStripeIntent.client_secret,
+          },
+        });
+        return;
+      }
+
       // Create real Stripe PaymentIntent with full amount (in minor units)
       const stripeIntent = await stripe.paymentIntents.create(
         {
@@ -125,6 +195,72 @@ export const createPaymentIntent = async (
   }
 };
 
+export const stripeWebhook = async (
+  req: Request<unknown, CommonResponseDTO>,
+  res: Response<CommonResponseDTO>,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const signature = req.headers['stripe-signature'];
+
+    if (!signature || typeof signature !== 'string') {
+      throw new BadRequestError('Missing Stripe signature');
+    }
+
+    const event = stripe.webhooks.constructEvent(
+      req.body as Buffer,
+      signature,
+      environment.stripeWebhookSecret
+    );
+
+    const paymentStatus = getPaymentStatusForStripeEvent(event.type);
+
+    if (!paymentStatus) {
+      logger.info({ stripeEventId: event.id, type: event.type }, 'Stripe webhook ignored');
+
+      res.status(StatusCodes.OK).json({
+        success: true,
+        message: 'Stripe webhook ignored',
+      });
+      return;
+    }
+
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    const payment = await paymentService.findPaymentByProviderPaymentId(paymentIntent.id);
+
+    if (!payment) {
+      throw new PaymentNotFoundError(
+        `Payment with provider payment id ${paymentIntent.id} not found`
+      );
+    }
+
+    if (payment.status === paymentStatus) {
+      await notifyOrderPaymentStatus(payment.orderId, payment.id, paymentStatus);
+    } else {
+      await syncPaymentAndOrderStatus(payment.id, paymentStatus);
+    }
+
+    logger.info(
+      {
+        stripeEventId: event.id,
+        type: event.type,
+        paymentId: payment.id,
+        orderId: payment.orderId,
+        paymentStatus,
+      },
+      'Stripe webhook processed'
+    );
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Stripe webhook processed',
+    });
+  } catch (error) {
+    logger.error(error, 'Stripe webhook error');
+    next(error);
+  }
+};
+
 export const confirmPayment = async (
   req: Request<PaymentIdParamsDTO, CommonResponseDTO<PaymentResponseDTO>>,
   res: Response<CommonResponseDTO<PaymentResponseDTO>>,
@@ -140,7 +276,14 @@ export const confirmPayment = async (
     }
 
     if (payment.status === PaymentStatus.SUCCEEDED) {
-      throw new PaymentAlreadyProcessedError('Payment has already been confirmed');
+      await notifyOrderPaymentStatus(payment.orderId, payment.id, PaymentStatus.SUCCEEDED);
+
+      res.status(StatusCodes.OK).json({
+        success: true,
+        message: 'Payment already confirmed',
+        data: payment,
+      });
+      return;
     }
 
     // Verify Stripe PaymentIntent status if it's a card payment
@@ -163,14 +306,14 @@ export const confirmPayment = async (
       );
     }
 
-    const updated = await paymentService.updatePaymentStatus(paymentId, PaymentStatus.SUCCEEDED);
+    const updated = await syncPaymentAndOrderStatus(paymentId, PaymentStatus.SUCCEEDED);
 
     logger.info({ paymentId }, 'Payment confirmed, status set to SUCCEEDED');
 
     res.status(StatusCodes.OK).json({
       success: true,
       message: 'Payment confirmed successfully',
-      data: updated as PaymentResponseDTO,
+      data: updated,
     });
   } catch (error) {
     logger.error(error, 'confirm payment error');
@@ -222,19 +365,19 @@ export const cancelPayment = async (
       res.status(StatusCodes.OK).json({
         success: true,
         message: 'Payment refunded successfully',
-        data: updated as PaymentResponseDTO,
+        data: updated,
       });
       return;
     }
 
-    const updated = await paymentService.updatePaymentStatus(paymentId, PaymentStatus.CANCELLED);
+    const updated = await syncPaymentAndOrderStatus(paymentId, PaymentStatus.CANCELLED);
 
     logger.info({ paymentId }, 'Payment cancelled');
 
     res.status(StatusCodes.OK).json({
       success: true,
       message: 'Payment cancelled successfully',
-      data: updated as PaymentResponseDTO,
+      data: updated,
     });
   } catch (error) {
     logger.error(error, 'cancel payment error');
@@ -261,7 +404,7 @@ export const getPaymentById = async (
     res.status(StatusCodes.OK).json({
       success: true,
       message: 'Payment retrieved successfully',
-      data: payment as PaymentResponseDTO,
+      data: payment,
     });
   } catch (error) {
     logger.error(error, 'get payment error');
@@ -288,7 +431,7 @@ export const getPaymentByOrderId = async (
     res.status(StatusCodes.OK).json({
       success: true,
       message: 'Payment retrieved successfully',
-      data: payment as PaymentResponseDTO,
+      data: payment,
     });
   } catch (error) {
     logger.error(error, 'get payment by orderId error');
