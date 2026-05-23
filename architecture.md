@@ -119,14 +119,19 @@ The Stripe webhook route is mounted before JSON body parsing and does not use AP
 
 ## Route Endpoints
 
-| Method | Path                              | Purpose                                        |
-| ------ | --------------------------------- | ---------------------------------------------- |
-| POST   | `/v1/payments/create-intent`      | Create payment record and Stripe PaymentIntent |
-| GET    | `/v1/payments/order/:orderId`     | Retrieve payment by order ID                   |
-| GET    | `/v1/payments/:paymentId`         | Retrieve payment by payment ID                 |
-| POST   | `/v1/payments/:paymentId/confirm` | Mark payment as confirmed/completed            |
-| POST   | `/v1/payments/:paymentId/cancel`  | Cancel and optionally refund payment           |
-| POST   | `/v1/payments/webhooks/stripe`    | Stripe webhook receiver                        |
+| Method | Path                                                    | Purpose                                                 |
+| ------ | ------------------------------------------------------- | ------------------------------------------------------- |
+| POST   | `/v1/payments/create-intent`                            | Create payment record and Stripe PaymentIntent          |
+| GET    | `/v1/payments/payment-methods`                          | List authenticated user's saved payment methods         |
+| POST   | `/v1/payments/payment-methods/setup-intent`             | Create Stripe SetupIntent for saving a card             |
+| POST   | `/v1/payments/payment-methods/finalize`                 | Store a saved card reference after SetupIntent succeeds |
+| PATCH  | `/v1/payments/payment-methods/:paymentMethodId/default` | Set default saved payment method                        |
+| DELETE | `/v1/payments/payment-methods/:paymentMethodId`         | Detach and soft-delete saved payment method             |
+| GET    | `/v1/payments/order/:orderId`                           | Retrieve payment by order ID                            |
+| GET    | `/v1/payments/:paymentId`                               | Retrieve payment by payment ID                          |
+| POST   | `/v1/payments/:paymentId/confirm`                       | Mark payment as confirmed/completed                     |
+| POST   | `/v1/payments/:paymentId/cancel`                        | Cancel and optionally refund payment                    |
+| POST   | `/v1/payments/webhooks/stripe`                          | Stripe webhook receiver                                 |
 
 ## Request/Response DTOs
 
@@ -221,14 +226,22 @@ Example: £12.99 → `1299`
 
 **Payment Flow:**
 
-1. Controller calls `stripe.paymentIntents.create()` with amount, currency, metadata
-2. Stripe returns `PaymentIntent` with `client_secret`
-3. Payment record stored with `providerPaymentId` (Stripe's intent ID)
-4. Client-side: frontend exchanges `client_secret` for card authorization
-5. Frontend calls `/confirm` endpoint after Stripe reports success
-6. Confirm handler verifies intent status before updating DB
-7. Stripe webhook also updates final payment state for reliable async confirmation
-8. Payment service notifies order service after final status changes
+1. Controller gets or creates a Stripe Customer for the authenticated user
+2. Controller calls `stripe.paymentIntents.create()` with amount, currency, customer, and metadata
+3. Stripe returns `PaymentIntent` with `client_secret`
+4. Payment record stored with `providerPaymentId` (Stripe's intent ID)
+5. Client-side: frontend exchanges `client_secret` for card authorization
+6. Frontend calls `/confirm` endpoint after Stripe reports success
+7. Confirm handler verifies intent status before updating DB
+8. Stripe webhook also updates final payment state for reliable async confirmation
+9. Payment service notifies order service after final status changes
+
+**Saved Payment Methods:**
+
+- The service uses Stripe SetupIntents to save cards for future use.
+- Raw card numbers, expiry input, and CVC are never stored in this service.
+- The database stores Stripe references plus safe display metadata only: provider payment method id, brand, last4, expiry, funding, country, cardholder name, and default flag.
+- Deleting a saved card detaches the Stripe PaymentMethod and soft-deletes the local record.
 
 **Metadata Stored:**
 

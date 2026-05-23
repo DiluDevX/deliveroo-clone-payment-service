@@ -23,3 +23,12 @@ export const OrderIdParamsSchema = z.object({
 export const CancelPaymentSchema = z.object({
   refundReason: z.string().min(1, 'refundReason must not be empty').max(500).optional(),
 });
+
+export const FinalizeSetupIntentSchema = z.object({
+  setupIntentId: z.string().min(1, 'setupIntentId is required'),
+  setAsDefault: z.boolean().optional(),
+});
+
+export const PaymentMethodIdParamsSchema = z.object({
+  paymentMethodId: z.string().min(1, 'paymentMethodId is required'),
+});

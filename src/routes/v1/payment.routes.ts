@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import {
   createPaymentIntent,
+  createSetupIntent,
+  finalizeSetupIntent,
+  listPaymentMethods,
+  setDefaultPaymentMethod,
+  deletePaymentMethod,
   confirmPayment,
   cancelPayment,
   getPaymentById,
@@ -9,7 +14,9 @@ import {
 import { validateBody, validateParams } from '../../middleware/validate.middleware';
 import {
   CreatePaymentIntentSchema,
+  FinalizeSetupIntentSchema,
   PaymentIdParamsSchema,
+  PaymentMethodIdParamsSchema,
   OrderIdParamsSchema,
   CancelPaymentSchema,
 } from '../../schema/payment.schema';
@@ -17,6 +24,28 @@ import {
 const router = Router();
 
 router.post('/create-intent', validateBody(CreatePaymentIntentSchema), createPaymentIntent);
+
+router.get('/payment-methods', listPaymentMethods);
+
+router.post('/payment-methods/setup-intent', createSetupIntent);
+
+router.post(
+  '/payment-methods/finalize',
+  validateBody(FinalizeSetupIntentSchema),
+  finalizeSetupIntent
+);
+
+router.patch(
+  '/payment-methods/:paymentMethodId/default',
+  validateParams(PaymentMethodIdParamsSchema),
+  setDefaultPaymentMethod
+);
+
+router.delete(
+  '/payment-methods/:paymentMethodId',
+  validateParams(PaymentMethodIdParamsSchema),
+  deletePaymentMethod
+);
 
 router.get('/order/:orderId', validateParams(OrderIdParamsSchema), getPaymentByOrderId);
 

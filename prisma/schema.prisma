@@ -46,3 +46,38 @@ model Payment {
   updatedAt            DateTime      @updatedAt
   deletedAt            DateTime?
 }
+
+model PaymentCustomer {
+  id               String              @id @default(cuid())
+  userId           String              @unique
+  stripeCustomerId String              @unique
+  paymentMethods   UserPaymentMethod[]
+
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  deletedAt        DateTime?
+}
+
+model UserPaymentMethod {
+  id                    String          @id @default(cuid())
+  userId                String
+  customerId            String
+  customer              PaymentCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  stripePaymentMethodId String          @unique
+  brand                 String
+  last4                 String
+  expMonth              Int
+  expYear               Int
+  funding               String?
+  country               String?
+  cardholderName        String?
+  isDefault             Boolean         @default(false)
+
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  deletedAt             DateTime?
+
+  @@index([userId])
+  @@index([customerId])
+}

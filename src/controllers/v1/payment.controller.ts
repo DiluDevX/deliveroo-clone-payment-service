@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import * as paymentService from '../../services/payment.database.service';
+import * as paymentMethodService from '../../services/payment-method.database.service';
 import { logger } from '../../utils/logger';
 import {
   BadRequestError,
@@ -8,6 +9,7 @@ import {
   PaymentAlreadyProcessedError,
   PaymentNotSucceededError,
   ConflictError,
+  ForbiddenError,
 } from '../../utils/errors';
 import { stripe } from '../../config/stripe';
 import { environment } from '../../config/environment';
@@ -20,9 +22,54 @@ import {
   OrderIdParamsDTO,
   PaymentResponseDTO,
   CreatePaymentIntentResponseDTO,
+  FinalizeSetupIntentDTO,
+  SetupIntentResponseDTO,
+  UserPaymentMethodResponseDTO,
+  PaymentMethodIdParamsDTO,
 } from '../../dtos/payment.dto';
-import { PaymentStatus, PaymentMethod, Prisma } from '../../../generated/prisma/client.js';
+import {
+  PaymentStatus,
+  PaymentMethod,
+  UserPaymentMethod,
+} from '../../../generated/prisma/client.js';
 import Stripe from 'stripe';
+
+type StripeExpandableId = string | { id: string } | null;
+
+const getAuthenticatedUserId = (req: { actor?: { userId?: string } }): string => {
+  const userId = req.actor?.userId;
+
+  if (!userId) {
+    throw new ForbiddenError('Authenticated user context is required');
+  }
+
+  return userId;
+};
+
+const getExpandableId = (value: StripeExpandableId): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  return typeof value === 'string' ? value : value.id;
+};
+
+const toUserPaymentMethodResponse = (
+  paymentMethod: UserPaymentMethod
+): UserPaymentMethodResponseDTO => ({
+  id: paymentMethod.id,
+  providerPaymentMethodId: paymentMethod.stripePaymentMethodId,
+  brand: paymentMethod.brand,
+  last4: paymentMethod.last4,
+  expMonth: paymentMethod.expMonth,
+  expYear: paymentMethod.expYear,
+  funding: paymentMethod.funding,
+  country: paymentMethod.country,
+  cardholderName: paymentMethod.cardholderName,
+  isDefault: paymentMethod.isDefault,
+  createdAt: paymentMethod.createdAt,
+  updatedAt: paymentMethod.updatedAt,
+});
 
 const notifyOrderPaymentStatus = async (
   orderId: string,
@@ -71,6 +118,7 @@ export const createPaymentIntent = async (
     // not linked in our DB; retries are safe due to stable idempotencyKey (orderId) which ensures
     // the same PaymentIntent is returned on retry, preventing duplicate intents.
     if (paymentMethod === PaymentMethod.CARD) {
+      const customer = await paymentMethodService.getOrCreatePaymentCustomer(userId);
       const existingPayment = await paymentService.findPaymentByOrderId(orderId);
       if (existingPayment) {
         if (
@@ -111,13 +159,13 @@ export const createPaymentIntent = async (
         {
           amount, // Amount already in minor units (pennies/cents)
           currency: currency.toLowerCase(),
+          customer: customer.stripeCustomerId,
           payment_method_types: ['card'],
           metadata: {
             orderId,
             userId,
             restaurantId,
           },
-          statement_descriptor: 'Deliveroo Order',
         },
         { idempotencyKey: orderId }
       );
@@ -140,7 +188,7 @@ export const createPaymentIntent = async (
       const updatedPayment = await paymentService.setProviderPaymentId(
         payment.id,
         stripeIntent.id,
-        stripeIntent.metadata as Prisma.InputJsonValue
+        stripeIntent.metadata
       );
 
       logger.info(
@@ -191,6 +239,171 @@ export const createPaymentIntent = async (
     });
   } catch (error) {
     logger.error(error, 'create payment intent error');
+    next(error);
+  }
+};
+
+export const createSetupIntent = async (
+  req: Request<unknown, CommonResponseDTO<SetupIntentResponseDTO>>,
+  res: Response<CommonResponseDTO<SetupIntentResponseDTO>>,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const userId = getAuthenticatedUserId(req);
+    const customer = await paymentMethodService.getOrCreatePaymentCustomer(userId);
+
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customer.stripeCustomerId,
+      payment_method_types: ['card'],
+      usage: 'off_session',
+      metadata: { userId },
+    });
+
+    if (!setupIntent.client_secret) {
+      throw new BadRequestError('Setup intent client secret unavailable');
+    }
+
+    logger.info({ userId, setupIntentId: setupIntent.id }, 'Stripe SetupIntent created');
+
+    res.status(StatusCodes.CREATED).json({
+      success: true,
+      message: 'Setup intent created',
+      data: {
+        setupIntentId: setupIntent.id,
+        clientSecret: setupIntent.client_secret,
+      },
+    });
+  } catch (error) {
+    logger.error(error, 'create setup intent error');
+    next(error);
+  }
+};
+
+export const finalizeSetupIntent = async (
+  req: Request<unknown, CommonResponseDTO<UserPaymentMethodResponseDTO>, FinalizeSetupIntentDTO>,
+  res: Response<CommonResponseDTO<UserPaymentMethodResponseDTO>>,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const userId = getAuthenticatedUserId(req);
+    const { setupIntentId, setAsDefault } = req.body;
+    const customer = await paymentMethodService.getOrCreatePaymentCustomer(userId);
+    const setupIntent = await stripe.setupIntents.retrieve(setupIntentId, {
+      expand: ['payment_method'],
+    });
+
+    if (setupIntent.status !== 'succeeded') {
+      throw new BadRequestError(`Setup intent is not complete. Status: ${setupIntent.status}`);
+    }
+
+    const setupIntentCustomerId = getExpandableId(setupIntent.customer);
+    paymentMethodService.assertSetupIntentBelongsToCustomer(setupIntentCustomerId, customer);
+
+    const expandedPaymentMethod = setupIntent.payment_method;
+    const stripePaymentMethod =
+      typeof expandedPaymentMethod === 'string'
+        ? await stripe.paymentMethods.retrieve(expandedPaymentMethod)
+        : expandedPaymentMethod;
+
+    if (!stripePaymentMethod || !stripePaymentMethod.card) {
+      throw new BadRequestError('Setup intent did not produce a card payment method');
+    }
+
+    const savedPaymentMethod = await paymentMethodService.saveStripePaymentMethod(
+      userId,
+      customer,
+      {
+        id: stripePaymentMethod.id,
+        card: stripePaymentMethod.card,
+        billing_details: stripePaymentMethod.billing_details,
+      },
+      setAsDefault
+    );
+
+    logger.info(
+      { userId, paymentMethodId: savedPaymentMethod.id, setupIntentId },
+      'User payment method saved'
+    );
+
+    res.status(StatusCodes.CREATED).json({
+      success: true,
+      message: 'Payment method saved',
+      data: toUserPaymentMethodResponse(savedPaymentMethod),
+    });
+  } catch (error) {
+    logger.error(error, 'finalize setup intent error');
+    next(error);
+  }
+};
+
+export const listPaymentMethods = async (
+  req: Request<unknown, CommonResponseDTO<UserPaymentMethodResponseDTO[]>>,
+  res: Response<CommonResponseDTO<UserPaymentMethodResponseDTO[]>>,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const userId = getAuthenticatedUserId(req);
+    const paymentMethods = await paymentMethodService.listUserPaymentMethods(userId);
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Payment methods retrieved successfully',
+      data: paymentMethods.map(toUserPaymentMethodResponse),
+    });
+  } catch (error) {
+    logger.error(error, 'list payment methods error');
+    next(error);
+  }
+};
+
+export const setDefaultPaymentMethod = async (
+  req: Request<PaymentMethodIdParamsDTO, CommonResponseDTO<UserPaymentMethodResponseDTO>>,
+  res: Response<CommonResponseDTO<UserPaymentMethodResponseDTO>>,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const userId = getAuthenticatedUserId(req);
+    const { paymentMethodId } = req.params;
+    const paymentMethod = await paymentMethodService.setDefaultUserPaymentMethod(
+      userId,
+      paymentMethodId
+    );
+
+    logger.info({ userId, paymentMethodId }, 'Default payment method updated');
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Default payment method updated',
+      data: toUserPaymentMethodResponse(paymentMethod),
+    });
+  } catch (error) {
+    logger.error(error, 'set default payment method error');
+    next(error);
+  }
+};
+
+export const deletePaymentMethod = async (
+  req: Request<PaymentMethodIdParamsDTO, CommonResponseDTO<UserPaymentMethodResponseDTO>>,
+  res: Response<CommonResponseDTO<UserPaymentMethodResponseDTO>>,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const userId = getAuthenticatedUserId(req);
+    const { paymentMethodId } = req.params;
+    const paymentMethod = await paymentMethodService.deleteUserPaymentMethod(
+      userId,
+      paymentMethodId
+    );
+
+    logger.info({ userId, paymentMethodId }, 'Payment method deleted');
+
+    res.status(StatusCodes.OK).json({
+      success: true,
+      message: 'Payment method deleted',
+      data: toUserPaymentMethodResponse(paymentMethod),
+    });
+  } catch (error) {
+    logger.error(error, 'delete payment method error');
     next(error);
   }
 };
