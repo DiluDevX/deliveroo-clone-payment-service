@@ -1,3 +1,10 @@
+# [1.0.0-beta.3](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.2...v1.0.0-beta.3) (2026-05-28)
+
+
+### Bug Fixes
+
+* expose port for Docker container in Azure deployment ([a017c4e](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/a017c4e20e33863232c309943288a1775eaec1f6))
+
 # [1.0.0-beta.2](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.1...v1.0.0-beta.2) (2026-05-27)
 
 ### Features
