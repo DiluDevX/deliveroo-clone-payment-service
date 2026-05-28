@@ -175,6 +175,7 @@ jobs:
             --network "$DOCKER_NETWORK" \
             --restart unless-stopped \
             --env-file "$SERVICE_DIR/.env" \
+            -p "127.0.0.1:3001:3001" \
             -e APP_VERSION="$APP_VERSION" \
             "$ACR_LOGIN_SERVER/$IMAGE_NAME:$APP_VERSION"
 

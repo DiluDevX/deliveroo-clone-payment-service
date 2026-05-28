@@ -1,9 +1,8 @@
 # [1.0.0-beta.2](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.1...v1.0.0-beta.2) (2026-05-27)
 
-
 ### Features
 
-* trigger CI/CD pipeline ([4b18491](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/4b184915f415ab8e46beaa5960b75c4c0686c9c4))
+- trigger CI/CD pipeline ([4b18491](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/4b184915f415ab8e46beaa5960b75c4c0686c9c4))
 
 # 1.0.0-beta.1 (2026-05-27)
 
