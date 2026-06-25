@@ -7,6 +7,11 @@ interface RateLimitConfig {
   max: number;
 }
 
+interface RabbitMQConfig {
+  url: string;
+  exchange: string;
+}
+
 interface Environment {
   port: number;
   env: EnvironmentEnum;
@@ -23,6 +28,7 @@ interface Environment {
   orderServiceUrl: string;
   orderServiceApiKey: string;
   rateLimit: RateLimitConfig;
+  rabbitMQ: RabbitMQConfig;
 }
 
 function requireEnv(name: string): string {
@@ -97,5 +103,9 @@ export const environment: Environment = {
   orderServiceUrl: optionalEnv('ORDER_SERVICE_URL', 'http://localhost:4002'),
   orderServiceApiKey: requireEnv('ORDER_SERVICE_API_KEY'),
   rateLimit: loadRateLimitConfig(environment_raw),
+  rabbitMQ: {
+    url: optionalEnv('RABBITMQ_URL', ''),
+    exchange: optionalEnv('RABBITMQ_EXCHANGE', 'deliveroo.events'),
+  },
   serviceName: requireEnv('SERVICE_NAME'),
 };

@@ -14,6 +14,7 @@ import {
 import { stripe } from '../../config/stripe';
 import { environment } from '../../config/environment';
 import * as orderService from '../../services/order.service';
+import { publishEvent } from '../../messaging/event-publisher';
 import { CommonResponseDTO } from '../../dtos/common.dto';
 import {
   CreatePaymentIntentDTO,
@@ -33,6 +34,7 @@ import {
   UserPaymentMethod,
 } from '../../../generated/prisma/client.js';
 import Stripe from 'stripe';
+import { PaymentEventData } from '../../types/event-envelope';
 
 type StripeExpandableId = string | { id: string } | null;
 
@@ -79,12 +81,57 @@ const notifyOrderPaymentStatus = async (
   await orderService.notifyOrderPaymentStatus(orderId, paymentId, paymentStatus);
 };
 
+const getPaymentEventType = (paymentStatus: PaymentStatus): string | null => {
+  switch (paymentStatus) {
+    case PaymentStatus.SUCCEEDED:
+      return 'payment.succeeded';
+    case PaymentStatus.FAILED:
+      return 'payment.failed';
+    case PaymentStatus.CANCELLED:
+      return 'payment.canceled';
+    case PaymentStatus.REFUNDED:
+      return 'payment.refunded';
+    default:
+      return null;
+  }
+};
+
+const toPaymentEventData = (payment: PaymentResponseDTO): PaymentEventData => ({
+  paymentId: payment.id,
+  orderId: payment.orderId,
+  userId: payment.userId,
+  restaurantId: payment.restaurantId,
+  amount: payment.amount,
+  currency: payment.currency,
+  paymentMethod: payment.paymentMethod,
+  status: payment.status,
+  providerPaymentId: payment.providerPaymentId,
+});
+
+const publishPaymentStatusEvent = async (payment: PaymentResponseDTO): Promise<void> => {
+  const eventType = getPaymentEventType(payment.status);
+
+  if (!eventType) {
+    return;
+  }
+
+  try {
+    await publishEvent(eventType, toPaymentEventData(payment));
+  } catch (error) {
+    logger.error(
+      { error, paymentId: payment.id, orderId: payment.orderId, eventType },
+      'Failed to publish payment event'
+    );
+  }
+};
+
 const syncPaymentAndOrderStatus = async (
   paymentId: string,
   paymentStatus: PaymentStatus
 ): Promise<PaymentResponseDTO> => {
   const updated = await paymentService.updatePaymentStatus(paymentId, paymentStatus);
   await notifyOrderPaymentStatus(updated.orderId, updated.id, paymentStatus);
+  await publishPaymentStatusEvent(updated);
   return updated;
 };
 
@@ -449,6 +496,7 @@ export const stripeWebhook = async (
 
     if (payment.status === paymentStatus) {
       await notifyOrderPaymentStatus(payment.orderId, payment.id, paymentStatus);
+      await publishPaymentStatusEvent(payment);
     } else {
       await syncPaymentAndOrderStatus(payment.id, paymentStatus);
     }
@@ -490,6 +538,7 @@ export const confirmPayment = async (
 
     if (payment.status === PaymentStatus.SUCCEEDED) {
       await notifyOrderPaymentStatus(payment.orderId, payment.id, PaymentStatus.SUCCEEDED);
+      await publishPaymentStatusEvent(payment);
 
       res.status(StatusCodes.OK).json({
         success: true,
@@ -572,6 +621,7 @@ export const cancelPayment = async (
       }
 
       const updated = await paymentService.refundPayment(paymentId, refundReason);
+      await publishPaymentStatusEvent(updated);
 
       logger.info({ paymentId, refundReason }, 'Payment refunded');
 

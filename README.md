@@ -108,17 +108,19 @@ All routes are prefixed with `/v1`.
 
 ## Environment Variables
 
-| Variable         | Required | Default        | Description                       |
-| ---------------- | -------- | -------------- | --------------------------------- |
-| `NODE_ENV`       | No       | `development`  | `development` or `production`     |
-| `PORT`           | No       | `3000`         | HTTP server port                  |
-| `DATABASE_URL`   | **Yes**  | -              | PostgreSQL connection string      |
-| `JWT_SECRET`     | **Yes**  | -              | JWT signing secret (min 32 chars) |
-| `JWT_EXPIRY`     | No       | `3600`         | JWT expiry in seconds             |
-| `SERVICE_NAME`   | No       | `microservice` | Service name used in logs         |
-| `LOG_LEVEL`      | No       | `info`         | Pino log level                    |
-| `DOPPLER_TOKEN`  | No       | -              | Doppler secrets manager token     |
-| `DOPPLER_CONFIG` | No       | -              | Doppler config name               |
+| Variable            | Required | Default            | Description                                           |
+| ------------------- | -------- | ------------------ | ----------------------------------------------------- |
+| `NODE_ENV`          | No       | `development`      | `development` or `production`                         |
+| `PORT`              | No       | `3000`             | HTTP server port                                      |
+| `DATABASE_URL`      | **Yes**  | -                  | PostgreSQL connection string                          |
+| `JWT_SECRET`        | **Yes**  | -                  | JWT signing secret (min 32 chars)                     |
+| `JWT_EXPIRY`        | No       | `3600`             | JWT expiry in seconds                                 |
+| `SERVICE_NAME`      | No       | `microservice`     | Service name used in logs                             |
+| `LOG_LEVEL`         | No       | `info`             | Pino log level                                        |
+| `DOPPLER_TOKEN`     | No       | -                  | Doppler secrets manager token                         |
+| `DOPPLER_CONFIG`    | No       | -                  | Doppler config name                                   |
+| `RABBITMQ_URL`      | No       | -                  | RabbitMQ connection URL for publishing payment events |
+| `RABBITMQ_EXCHANGE` | No       | `deliveroo.events` | RabbitMQ topic exchange for payment events            |
 
 ## Development Commands
 
