@@ -1,3 +1,10 @@
+# [1.0.0-beta.5](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.4...v1.0.0-beta.5) (2026-06-25)
+
+
+### Features
+
+* add user metadata fields to payment processing and event data ([140953b](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/140953b550066c6278b2cceae429f67785dcea8c))
+
 # [1.0.0-beta.4](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.3...v1.0.0-beta.4) (2026-06-25)
 
 ### Features
