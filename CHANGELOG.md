@@ -1,3 +1,10 @@
+# [1.0.0-beta.4](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.3...v1.0.0-beta.4) (2026-06-25)
+
+
+### Features
+
+* integrate RabbitMQ for payment event publishing ([6d15df3](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/6d15df3f68e0d454d70812c93e66f3897ca14052))
+
 # [1.0.0-beta.3](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.2...v1.0.0-beta.3) (2026-05-28)
 
 ### Bug Fixes
