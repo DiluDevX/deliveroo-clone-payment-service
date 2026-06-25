@@ -73,6 +73,16 @@ const toUserPaymentMethodResponse = (
   updatedAt: paymentMethod.updatedAt,
 });
 
+const getMetadataString = (metadata: unknown, key: string): string | undefined => {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return undefined;
+  }
+
+  const value = (metadata as Record<string, unknown>)[key];
+
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+};
+
 const notifyOrderPaymentStatus = async (
   orderId: string,
   paymentId: string,
@@ -100,6 +110,9 @@ const toPaymentEventData = (payment: PaymentResponseDTO): PaymentEventData => ({
   paymentId: payment.id,
   orderId: payment.orderId,
   userId: payment.userId,
+  userEmail: getMetadataString(payment.providerMetadata, 'userEmail'),
+  userFirstName: getMetadataString(payment.providerMetadata, 'userFirstName'),
+  userLastName: getMetadataString(payment.providerMetadata, 'userLastName'),
   restaurantId: payment.restaurantId,
   amount: payment.amount,
   currency: payment.currency,
@@ -154,11 +167,29 @@ export const createPaymentIntent = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { orderId, userId, restaurantId, amount, currency, paymentMethod, commissionPercentage } =
-      req.body;
+    const {
+      orderId,
+      userId,
+      userEmail,
+      userFirstName,
+      userLastName,
+      restaurantId,
+      amount,
+      currency,
+      paymentMethod,
+      commissionPercentage,
+    } = req.body;
 
     const commissionValue = (amount * commissionPercentage) / 100;
     const transferAmount = amount - commissionValue;
+    const notificationMetadata = {
+      orderId,
+      userId,
+      userEmail,
+      userFirstName,
+      userLastName,
+      restaurantId,
+    };
 
     // Create Stripe PaymentIntent first (for CARD), then DB record.
     // If createPayment or setProviderPaymentId fails, the PaymentIntent exists in Stripe but is
@@ -211,6 +242,9 @@ export const createPaymentIntent = async (
           metadata: {
             orderId,
             userId,
+            ...(userEmail ? { userEmail } : {}),
+            ...(userFirstName ? { userFirstName } : {}),
+            ...(userLastName ? { userLastName } : {}),
             restaurantId,
           },
         },
@@ -235,7 +269,7 @@ export const createPaymentIntent = async (
       const updatedPayment = await paymentService.setProviderPaymentId(
         payment.id,
         stripeIntent.id,
-        stripeIntent.metadata
+        notificationMetadata
       );
 
       logger.info(
@@ -267,6 +301,7 @@ export const createPaymentIntent = async (
       transferAmount,
       paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
       status: PaymentStatus.PENDING,
+      providerMetadata: notificationMetadata,
     });
 
     logger.info({ paymentId: payment.id, orderId, paymentMethod }, 'Payment created');

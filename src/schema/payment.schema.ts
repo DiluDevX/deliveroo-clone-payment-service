@@ -5,6 +5,9 @@ export const PaymentMethodSchema = z.enum(['CASH_ON_DELIVERY', 'CARD']);
 export const CreatePaymentIntentSchema = z.object({
   orderId: z.string().min(1, 'orderId is required'),
   userId: z.string().min(1, 'userId is required'),
+  userEmail: z.email().optional(),
+  userFirstName: z.string().trim().min(1).optional(),
+  userLastName: z.string().trim().min(1).optional(),
   restaurantId: z.string().min(1, 'restaurantId is required'),
   amount: z.number().positive('amount must be positive'),
   currency: z.string().min(1).max(3).default('GBP'),

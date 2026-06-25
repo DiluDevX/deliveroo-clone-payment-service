@@ -28,6 +28,7 @@ export interface PaymentResponseDTO {
   paymentMethod: 'CASH_ON_DELIVERY' | 'CARD';
   status: 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED' | 'REFUNDED' | 'CANCELLED';
   providerPaymentId: string | null;
+  providerMetadata?: unknown;
   refundedAt: Date | null;
   refundReason: string | null;
   createdAt: Date;

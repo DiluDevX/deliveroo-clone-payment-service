@@ -10,6 +10,9 @@ export interface PaymentEventData {
   paymentId: string;
   orderId: string;
   userId: string;
+  userEmail?: string;
+  userFirstName?: string;
+  userLastName?: string;
   restaurantId: string;
   amount: number;
   currency: string;
