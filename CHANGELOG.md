@@ -1,3 +1,10 @@
+# [1.0.0-beta.7](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.6...v1.0.0-beta.7) (2026-06-26)
+
+
+### Features
+
+* enhance payment event data with provider details and timestamps ([682a5a1](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/682a5a1244091814cdb34bc43a997a811a92d8b4))
+
 # [1.0.0-beta.6](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.5...v1.0.0-beta.6) (2026-06-25)
 
 ### Bug Fixes
