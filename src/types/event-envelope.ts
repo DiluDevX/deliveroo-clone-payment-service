@@ -18,5 +18,8 @@ export interface PaymentEventData {
   currency: string;
   paymentMethod: string;
   status: string;
+  provider: string;
   providerPaymentId: string | null;
+  providerPaymentIntentId: string | null;
+  paidAt?: string;
 }

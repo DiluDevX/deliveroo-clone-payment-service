@@ -118,7 +118,12 @@ const toPaymentEventData = (payment: PaymentResponseDTO): PaymentEventData => ({
   currency: payment.currency,
   paymentMethod: payment.paymentMethod,
   status: payment.status,
+  provider: payment.paymentMethod === PaymentMethod.CARD ? 'stripe' : 'cash_on_delivery',
   providerPaymentId: payment.providerPaymentId,
+  providerPaymentIntentId: payment.providerPaymentId,
+  ...(payment.status === PaymentStatus.SUCCEEDED
+    ? { paidAt: payment.updatedAt.toISOString() }
+    : {}),
 });
 
 const publishPaymentStatusEvent = async (payment: PaymentResponseDTO): Promise<void> => {
