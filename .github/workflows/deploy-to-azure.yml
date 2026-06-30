@@ -162,6 +162,12 @@ jobs:
             exit 1
           fi
 
+          mkdir -p "$SERVICE_DIR/certs"
+          cat > "$SERVICE_DIR/certs/supabase-ca.crt" <<'SUPABASE_DB_CA_CERT'
+          ${{ secrets.SUPABASE_DB_CA_CERT_DEV }}
+          SUPABASE_DB_CA_CERT
+          chmod 644 "$SERVICE_DIR/certs/supabase-ca.crt"
+
           docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1 || docker network create "$DOCKER_NETWORK"
 
           docker pull "$ACR_LOGIN_SERVER/$IMAGE_NAME:$APP_VERSION"
@@ -177,6 +183,7 @@ jobs:
             --env-file "$SERVICE_DIR/.env" \
             -p "127.0.0.1:3001:3001" \
             -e APP_VERSION="$APP_VERSION" \
+            -v "$SERVICE_DIR/certs:/app/certs:ro" \
             "$ACR_LOGIN_SERVER/$IMAGE_NAME:$APP_VERSION"
 
           sleep 10
