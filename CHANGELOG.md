@@ -1,3 +1,10 @@
+# [1.0.0-beta.10](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.9...v1.0.0-beta.10) (2026-06-30)
+
+
+### Features
+
+* enhance database adapter to support schema extraction from URL ([e171b39](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/e171b39674a825303b78bdffa5a41d4898562c83))
+
 # [1.0.0-beta.9](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.8...v1.0.0-beta.9) (2026-06-30)
 
 ### Features
