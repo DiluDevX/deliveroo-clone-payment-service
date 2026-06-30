@@ -1,3 +1,10 @@
+# [1.0.0-beta.8](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.7...v1.0.0-beta.8) (2026-06-30)
+
+
+### Bug Fixes
+
+* remove unnecessary blank line in CHANGELOG.md ([e2e3ac2](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/e2e3ac2cbf135f5832a3d309bf4046266918b200))
+
 # [1.0.0-beta.7](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.6...v1.0.0-beta.7) (2026-06-26)
 
 ### Features
