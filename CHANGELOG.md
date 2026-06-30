@@ -1,9 +1,8 @@
 # [1.0.0-beta.9](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.8...v1.0.0-beta.9) (2026-06-30)
 
-
 ### Features
 
-* add certificate handling for Supabase in Azure deployment ([49ac49d](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/49ac49dbd34b9ddaa865d34782997aa997d2a8b9))
+- add certificate handling for Supabase in Azure deployment ([49ac49d](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/49ac49dbd34b9ddaa865d34782997aa997d2a8b9))
 
 # [1.0.0-beta.8](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.7...v1.0.0-beta.8) (2026-06-30)
 

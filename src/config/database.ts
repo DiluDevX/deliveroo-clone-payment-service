@@ -7,7 +7,18 @@ declare global {
   var __prisma: PrismaClient | undefined;
 }
 
-const adapter = new PrismaPg({ connectionString: environment.databaseUrl });
+const getSchemaName = (databaseUrl: string): string | undefined => {
+  try {
+    return new URL(databaseUrl).searchParams.get('schema') ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const adapter = new PrismaPg(
+  { connectionString: environment.databaseUrl },
+  { schema: getSchemaName(environment.databaseUrl) }
+);
 
 export const prisma = globalThis.__prisma || new PrismaClient({ adapter });
 

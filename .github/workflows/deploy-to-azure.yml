@@ -166,6 +166,10 @@ jobs:
           cat > "$SERVICE_DIR/certs/supabase-ca.crt" <<'SUPABASE_DB_CA_CERT'
           ${{ secrets.SUPABASE_DB_CA_CERT_DEV }}
           SUPABASE_DB_CA_CERT
+          if [ ! -s "$SERVICE_DIR/certs/supabase-ca.crt" ]; then
+            echo "SUPABASE_DB_CA_CERT_DEV is required for verified Supabase TLS."
+            exit 1
+          fi
           chmod 644 "$SERVICE_DIR/certs/supabase-ca.crt"
 
           docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1 || docker network create "$DOCKER_NETWORK"
