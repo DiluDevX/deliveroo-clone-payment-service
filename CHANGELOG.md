@@ -1,3 +1,10 @@
+# [1.0.0-beta.11](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.10...v1.0.0-beta.11) (2026-07-13)
+
+
+### Bug Fixes
+
+* trigger azure deployment ([1dd8ea3](https://github.com/DiluDevX/deliveroo-clone-payment-service/commit/1dd8ea34d04d0ff673d66f0ff47d893c46f0e67c))
+
 # [1.0.0-beta.10](https://github.com/DiluDevX/deliveroo-clone-payment-service/compare/v1.0.0-beta.9...v1.0.0-beta.10) (2026-06-30)
 
 ### Features
