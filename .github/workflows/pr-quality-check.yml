@@ -28,6 +28,12 @@ jobs:
             command: npm run format:check
           - name: Types
             command: npm run types:check
+          - name: Test Types
+            command: npm run test:types
+          - name: Tests
+            command: npm test
+          - name: Build
+            command: npm run build
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -43,7 +49,7 @@ jobs:
         run: npm ci
 
       - name: Generate Prisma Client
-        if: matrix.check.name == 'Types'
+        if: contains(fromJSON('["Types", "Test Types", "Tests", "Build"]'), matrix.check.name)
         run: npm run prisma:generate
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/db

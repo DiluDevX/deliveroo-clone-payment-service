@@ -1,10 +1,9 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import type { ActorType } from '../types/express.d';
-
-const VALID_ACTOR_TYPES: ActorType[] = ['USER', 'RESTAURANT', 'DRIVER', 'SYSTEM'];
+import { UnauthorizedError } from '../utils/errors';
 
 function isValidActorType(value: string): value is ActorType {
-  return VALID_ACTOR_TYPES.includes(value as ActorType);
+  return value === 'USER' || value === 'RESTAURANT' || value === 'DRIVER' || value === 'SYSTEM';
 }
 
 /**
@@ -27,10 +26,20 @@ export const actorMiddleware: RequestHandler = (
   const userId = req.headers['x-user-id'];
   const actorId = req.headers['x-actor-id'];
 
-  const actorType = typeof rawType === 'string' && isValidActorType(rawType) ? rawType : 'SYSTEM';
+  let actorHeaderCount = 0;
+  for (let index = 0; index < req.rawHeaders.length; index += 2) {
+    if (req.rawHeaders[index].toLowerCase() === 'x-actor-type') {
+      actorHeaderCount += 1;
+    }
+  }
+
+  if (actorHeaderCount !== 1 || typeof rawType !== 'string' || !isValidActorType(rawType)) {
+    next(new UnauthorizedError('Valid actor type is required'));
+    return;
+  }
 
   req.actor = {
-    type: actorType,
+    type: rawType,
     userId: typeof userId === 'string' && userId.length > 0 ? userId : undefined,
     actorId: typeof actorId === 'string' && actorId.length > 0 ? actorId : undefined,
   };
