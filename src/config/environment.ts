@@ -27,6 +27,7 @@ interface Environment {
   stripeWebhookSecret: string;
   orderServiceUrl: string;
   orderServiceApiKey: string;
+  paymentCallbackSecret: string;
   rateLimit: RateLimitConfig;
   rabbitMQ: RabbitMQConfig;
 }
@@ -41,6 +42,14 @@ function requireEnv(name: string): string {
 
 function optionalEnv(name: string, defaultValue: string): string {
   return process.env[name] || defaultValue;
+}
+
+function requirePaymentCallbackSecret(): string {
+  const value = requireEnv('PAYMENT_CALLBACK_SECRET');
+  if (Buffer.byteLength(value, 'utf8') < 32) {
+    throw new Error('PAYMENT_CALLBACK_SECRET must contain at least 32 UTF-8 bytes');
+  }
+  return value;
 }
 
 const parsePositiveInt = (raw: string, name: string): number => {
@@ -102,6 +111,7 @@ export const environment: Environment = {
   stripeWebhookSecret: requireEnv('STRIPE_WEBHOOK_SECRET'),
   orderServiceUrl: optionalEnv('ORDER_SERVICE_URL', 'http://localhost:4002'),
   orderServiceApiKey: requireEnv('ORDER_SERVICE_API_KEY'),
+  paymentCallbackSecret: requirePaymentCallbackSecret(),
   rateLimit: loadRateLimitConfig(environment_raw),
   rabbitMQ: {
     url: optionalEnv('RABBITMQ_URL', ''),

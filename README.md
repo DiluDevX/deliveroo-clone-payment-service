@@ -256,3 +256,24 @@ You can manually trigger releases from GitHub Actions:
 3. Select the environment and click **Run workflow**
 
 Both workflows also run automatically on push to `main` (production) or `develop` (development).
+
+# Payment callback authentication
+
+Payment status callbacks to order service carry an `x-payment-callback-token` JWT
+in addition to the existing API key and actor headers. Configure a dedicated,
+cryptographically random `PAYMENT_CALLBACK_SECRET` of at least 32 UTF-8 bytes in
+both services. Startup fails if the secret is missing or too short. Do not reuse
+an API key as this secret.
+
+Tokens use HS256, issuer `payment-service`, audience `order-service`, subject equal
+to the order ID, action `payment-status`, and a `payloadSha256` claim containing
+the lowercase hexadecimal SHA-256 hash of the exact UTF-8 JSON request body.
+Each send signs a new token with `iat` and a 60-second `exp`; retries must mint a
+fresh token. The order verifier rejects unsigned or invalid callbacks. Existing
+order payment transition and idempotency checks still apply; the token is not a
+single-use replay store.
+
+The paired order-service verifier must be configured with the same secret before
+callbacks are enabled. Provision the secret in both services, then roll out signing
+before enforcing verification to avoid interrupting callbacks. These changes do
+not provision secrets or deploy either service.
